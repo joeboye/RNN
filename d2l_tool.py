@@ -1,3 +1,10 @@
+import numpy as np
+from matplotlib import pyplot as plt
+from IPython import display
+import time
+from d2l import torch as d2l
+
+
 class Accumulator:
     """在n个变量上累加"""
 

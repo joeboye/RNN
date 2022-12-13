@@ -1,38 +1,28 @@
 import torch
 from torch import nn, optim
-import torch.nn.functional as F
-
-from d2l import Timer, Animator, Accumulator
-
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-input_size = 4
-num_hiddens = 500
-
-rnn_layer = nn.RNN(input_size=input_size, hidden_size=num_hiddens)
-
-num_steps = 24
-batch_size = 1
-
-num_layer = 1
-num_epochs = 100
-learning_rate = 0.0001
-output_size = 1
-use_random_iter = True
-input_size = len(train_dataset.columns) - output_size
+from d2l_tool import Timer, Accumulator, Animator
 
 
 class RNNModel(nn.Module):
-    def __init__(self, rnn_layer, input_size):
-        super(RNNModel, self).__init__()
-        self.rnn = rnn_layer
-        self.hidden_size = rnn_layer.hidden_size
-        self.input_size = input_size
-        self.linear = nn.Linear(self.hidden_size, input_size)
-        self.state = None
+    def __init__(self, rnn_layer, num_layer, input_size, num_hiddens, output_size, **kwargs):
+        super(RNNModel, self).__init__(**kwargs)
+        # # 定义RNN层
+        # RNN输入的形状为（num_steps, batch_size, input_size）  # input_size 就是 vocab_size
+        # RNN输出的形状为（num_steps, batch_size, num_hiddens）和（1, batch_size, num_hiddens）
+        self.rnn = rnn_layer(input_size, num_hiddens, num_layer)
+        self.input_size = self.rnn.input_size
+        self.num_hiddens = self.rnn.hidden_size
+
+        self.output_size = output_size
+        self.linear = nn.Linear(self.num_hiddens, self.output_size)
 
     def forward(self, inputs, state):
+        # inputs的形状为（num_steps, num_hiddens, input_size）
+        # Y是所有时间步的隐藏状态，state是最后一个时间步的隐藏状态
+        # Y的形状为（num_steps, batch_size, num_hiddens），state为（1，batch_size, num_hiddens）
         Y, state = self.rnn(inputs, state)
+        # 全连接层首先将Y的形状改为(num_steps*batch_size, num_hiddens)
+        # 它的输出形状是(num_steps*batch_size, output_size)。
         output = self.linear(Y.reshape((-1, Y.shape[-1])))
         return output, state
 
@@ -129,18 +119,14 @@ def train(net, train_iter, test_iter, lr, num_epochs, device, use_random_iter=Fa
         animator.add(epoch + 1, [train_loss, test_loss])
         print(f'{speed}\ttokens/sec {str(device)}\ntrain_loss \t{train_loss}\ntest_loss\t{test_loss}')
 
-
-
-# # 检查torch.cuda是否可用，否则继续使用CPU
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f'-------------------------------\n'
-      f'Using {device} device\n'
-      f'-------------------------------')
-
-LSTM_net = RNNModel(nn.LSTM, num_layer, input_size, num_hiddens, output_size)
-GRU_net = RNNModel(nn.GRU, num_layer, input_size, num_hiddens, output_size)
-
-net = LSTM_net.to(device)
-
-train(net, train_iter, test_iter, learning_rate, num_epochs, device, use_random_iter=use_random_iter)
-plt.show()
+# # 梯度裁剪
+def grad_clipping(net, theta):
+    """裁剪梯度"""
+    if isinstance(net, nn.Module):
+        params = [p for p in net.parameters() if p.requires_grad]
+    else:
+        params = net.params
+    norm = torch.sqrt(sum(torch.sum((p.grad ** 2)) for p in params))
+    if norm > theta:
+        for param in params:
+            param.grad[:] *= theta / norm
